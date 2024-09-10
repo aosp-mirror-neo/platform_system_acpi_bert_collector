@@ -45,6 +45,7 @@ cc_binary {
         "main.cpp",
         "bert_collector.cpp",
     ],
+    init_rc: ["bert_collector.rc"],
 }
 
 cc_test {
