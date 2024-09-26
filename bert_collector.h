@@ -65,7 +65,7 @@ bool CollectReport(
     const std::filesystem::path &bert_data_path = kBertDataPath);
 
 // Dump BERT report to DropBox
-bool DumpReport(const std::string report,
+bool DumpReport(const std::string &report,
                 const android::String16 tag = kBertDropBoxTag);
 
 } // namespace bert_collector

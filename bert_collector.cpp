@@ -138,7 +138,7 @@ bool CollectReport(std::string &report,
   return true;
 }
 
-bool DumpReport(const std::string report, const android::String16 tag) {
+bool DumpReport(const std::string &report, const android::String16 tag) {
   std::string header = GetReportHeader();
   android::sp<android::os::DropBoxManager> dropbox(
       new android::os::DropBoxManager());
