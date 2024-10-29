@@ -31,6 +31,7 @@
 #include <android-base/strings.h>
 #include <android/os/DropBoxManager.h>
 #include <brillo/data_encoding.h>
+#include <regex>
 
 #if defined(__BIG_ENDIAN__) ||                                                 \
     (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
@@ -53,11 +54,11 @@ static bool BertCheckTable(const struct acpi_table_bert &bert_table) {
 }
 
 // Read BERT table and data files.
-bool BertRead(const std::filesystem::path &bert_table_path,
-              const std::filesystem::path &bert_data_path,
-              struct acpi_table_bert &bert_table,
-              std::string &bert_table_contents,
-              std::string &bert_data_contents) {
+static bool BertRead(const std::filesystem::path &bert_table_path,
+                     const std::filesystem::path &bert_data_path,
+                     struct acpi_table_bert &bert_table,
+                     std::string &bert_table_contents,
+                     std::string &bert_data_contents) {
   // Read BERT table file.
   if (!android::base::ReadFileToString(bert_table_path, &bert_table_contents)) {
     LOG(ERROR) << "Failed to read BERT table at " << bert_table_path;
@@ -87,22 +88,44 @@ bool BertRead(const std::filesystem::path &bert_table_path,
 // Default value for unknown header values
 const std::string kUnknown = "UNKNOWN";
 
+static std::string FormatHeaderLine(const std::string &key,
+                                    const std::string &value) {
+  return android::base::Trim(key) + ": " + android::base::Trim(value) + "\n";
+}
+
 static std::string GetOnePropertyHeader(const std::string &header_key,
                                         const std::string &property_name) {
-  return header_key + ": " +
-         android::base::GetProperty(property_name, kUnknown) + "\n";
+  return FormatHeaderLine(header_key,
+                          android::base::GetProperty(property_name, kUnknown));
 };
 
 static std::string GetReportHeader() {
   std::string ret = GetOnePropertyHeader("Build", "ro.build.fingerprint");
   ret += GetOnePropertyHeader("Hardware", "ro.product.device");
   ret += GetOnePropertyHeader("Revision", "ro.revision");
+  ret += FormatHeaderLine("Subsystem", kSubsystem);
 
   std::string version;
   if (!android::base::ReadFileToString("/proc/version", &version))
     version = kUnknown;
-  ret += "Kernel: " + android::base::Trim(version) + "\n";
+  ret += FormatHeaderLine("Kernel", version);
+  ret += "\n"; // report header ends with extra newline
   return ret;
+}
+
+const std::string kDelimiterPrefix = "===";
+const std::string kDelimiterSuffix = "===";
+const std::string kEscapedDelimiterPrefix = "====";
+
+static std::string EscapeDelmiter(const std::string &text) {
+  std::regex re("^" + kDelimiterPrefix, std::regex::multiline);
+  return std::regex_replace(text, re, kEscapedDelimiterPrefix);
+}
+
+static void AppendReportEntry(std::string &report, const std::string &name,
+                              const std::string &value) {
+  report += std::format("{}{}{}\n", kDelimiterPrefix, name, kDelimiterSuffix);
+  report += std::format("{}\n", EscapeDelmiter(value));
 }
 
 bool CollectReport(std::string &report,
@@ -120,6 +143,8 @@ bool CollectReport(std::string &report,
 
   LOG(INFO) << "BERT error from previous boot (handling)";
 
+  report = GetReportHeader();
+
   std::string bert_table_contents;
   std::string bert_data_contents;
   struct acpi_table_bert bert_table;
@@ -129,21 +154,19 @@ bool CollectReport(std::string &report,
   }
   const std::string bert_table_contents_encoded =
       brillo::data_encoding::Base64Encode(bert_table_contents);
-  report = std::format("{}: {}\n", bert_table_path.string(),
-                       bert_table_contents_encoded);
+  AppendReportEntry(report, bert_table_path, bert_table_contents_encoded);
+
   const std::string bert_data_contents_encoded =
       brillo::data_encoding::Base64Encode(bert_data_contents);
-  report += std::format("{}: {}\n", bert_data_path.string(),
-                        bert_data_contents_encoded);
+  AppendReportEntry(report, bert_data_path, bert_data_contents_encoded);
+
   return true;
 }
 
 bool DumpReport(const std::string &report, const android::String16 tag) {
-  std::string header = GetReportHeader();
   android::sp<android::os::DropBoxManager> dropbox(
       new android::os::DropBoxManager());
-  android::binder::Status status =
-      dropbox->addText(tag, header + "\n" + report);
+  android::binder::Status status = dropbox->addText(tag, report);
   if (!status.isOk()) {
     LOG(ERROR) << "Failed to write " << tag
                << " to DropBox: " << status.exceptionMessage();

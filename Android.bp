@@ -53,7 +53,6 @@ cc_test {
         "bert_collector_defaults",
     ],
     srcs: [
-        "bert_collector.cpp",
         "bert_collector_test.cpp",
     ],
     test_suites: ["general-tests"],

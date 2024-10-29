@@ -24,6 +24,7 @@
 namespace bert_collector {
 
 const android::String16 kBertDropBoxTag("DesktopFirmwareCrash");
+const std::string kSubsystem("bert");
 
 const std::filesystem::path kAcpiTablesPath = "/sys/firmware/acpi/tables";
 const std::filesystem::path kBertTablePath = kAcpiTablesPath / "BERT";
@@ -48,14 +49,6 @@ struct acpi_table_bert {
   uint32_t region_length;
   uint64_t address;
 };
-
-// Read BERT table and data files. Return false if bert table is unavailable or
-// invalid.
-bool BertRead(const std::filesystem::path &bert_table_path,
-              const std::filesystem::path &bert_data_path,
-              struct acpi_table_bert &bert_table,
-              std::string &bert_table_contents,
-              std::string &bert_data_contents);
 
 // Collect BERT table and data and encode for dumping.
 // Return false if bert table is unable to be generated for any reason.

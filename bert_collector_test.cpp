@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-#include "bert_collector.h"
+// Including file under test so internal functions can remain static.
+// This technique is described in
+// https://google.github.io/googletest/advanced.html#testing-private-code
+#include "bert_collector.cpp"
 
-#include <android-base/file.h>
-#include <android-base/logging.h>
-#include <brillo/data_encoding.h>
 #include <brillo/strings/string_utils.h>
 #include <gtest/gtest.h>
-#include <sys/types.h>
 
 using std::string_literals::operator""s;
 
@@ -143,6 +142,38 @@ TEST_F(BERTCollectorTest, TestOrganicBERTData) {
   ASSERT_EQ(bert_table.region_length, bert_data_contents.size());
 }
 
+TEST_F(BERTCollectorTest, TestEscapeDelimiter) {
+  std::string text = "foo===bar\n"
+                     "===foobar===\n"
+                     "==foobar\n"
+                     "====foobar\n";
+  std::string expected = "foo===bar\n"
+                         "====foobar===\n"
+                         "==foobar\n"
+                         "=====foobar\n";
+  ASSERT_EQ(expected, EscapeDelmiter(text));
+}
+
+TEST_F(BERTCollectorTest, TestBERTReportHeader) {
+  std::string header = GetReportHeader();
+  ASSERT_FALSE(header.empty());
+  ASSERT_TRUE(header.ends_with("\n\n"));
+
+  bool found_subsystem = false;
+  for (std::string line : brillo::string_utils::Split(header, "\n")) {
+    std::cout << "Header Line: " << std::endl << line << std::endl;
+    std::regex header_line_re("^([^:]+): (.*)$", std::regex::multiline);
+    std::smatch header_line_match;
+    ASSERT_TRUE(std::regex_search(line, header_line_match, header_line_re));
+    ASSERT_EQ(header_line_match.size(), 3ul);
+    if (header_line_match[1] == "Subsystem") {
+      ASSERT_EQ(header_line_match[2], kSubsystem);
+      found_subsystem = true;
+    }
+  }
+  ASSERT_TRUE(found_subsystem);
+}
+
 TEST_F(BERTCollectorTest, TestDecodeReport) {
   std::string bert_table_contents;
   std::string bert_data_contents;
@@ -154,25 +185,35 @@ TEST_F(BERTCollectorTest, TestDecodeReport) {
   std::string report;
   ASSERT_TRUE(
       CollectReport(report, test_bert_table_path_, test_bert_data_path_));
-  auto report_lines = brillo::string_utils::Split(report, "\n");
-  ASSERT_EQ((int)report_lines.size(), 2);
+
+  std::pair<std::string, std::string> header_body =
+      brillo::string_utils::SplitAtFirst(report, "\n\n");
+  std::string body = header_body.second;
+
+  // Extract entries from report
+  std::regex entry_re("===([^=]+)===\n((?:\n|.)*?)(?=(?:\n===[^=]|$))");
+  std::smatch entry_match;
 
   // Decode BERT table from report
-  auto table_parts = brillo::string_utils::Split(report_lines[0], ": ");
-  ASSERT_EQ((int)table_parts.size(), 2);
-  ASSERT_EQ(table_parts[0], test_bert_table_path_);
+  ASSERT_TRUE(std::regex_search(body, entry_match, entry_re));
+  ASSERT_EQ(entry_match.size(), 3ul);
+  std::string table_entry_name = entry_match[1].str();
+  std::string table_encoded = entry_match[2].str();
+  ASSERT_EQ(table_entry_name, test_bert_table_path_);
   std::string table_decoded;
   ASSERT_TRUE(
-      brillo::data_encoding::Base64Decode(table_parts[1], &table_decoded));
+      brillo::data_encoding::Base64Decode(table_encoded, &table_decoded));
   ASSERT_EQ(table_decoded, bert_table_contents);
 
   // Decode BERT data from report
-  auto data_parts = brillo::string_utils::Split(report_lines[1], ": ");
-  ASSERT_EQ((int)data_parts.size(), 2);
-  ASSERT_EQ(data_parts[0], test_bert_data_path_);
+  body = entry_match.suffix();
+  ASSERT_TRUE(std::regex_search(body, entry_match, entry_re));
+  ASSERT_EQ(entry_match.size(), 3ul);
+  std::string data_entry_name = entry_match[1].str();
+  std::string data_encoded = entry_match[2].str();
+  ASSERT_EQ(data_entry_name, test_bert_data_path_);
   std::string data_decoded;
-  ASSERT_TRUE(
-      brillo::data_encoding::Base64Decode(data_parts[1], &data_decoded));
+  ASSERT_TRUE(brillo::data_encoding::Base64Decode(data_encoded, &data_decoded));
   ASSERT_EQ(data_decoded, bert_data_contents);
 }
 
