@@ -1,0 +1,7 @@
+# Copyright (C) 2024 The ChromiumOS Authors
+
+service bert_collector /system/bin/bert_collector
+    user system
+    group system
+    class late_start
+    oneshot
